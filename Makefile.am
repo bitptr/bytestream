@@ -1,6 +1,7 @@
 AUTOMAKE_OPTIONS = foreign
 
-AM_CFLAGS = -std=c99 -Wall -Wextra -pedantic-errors -Werror -DGSEAL_ENABLE
+AM_CFLAGS = -std=c99 -Wall -Wextra -pedantic-errors -Werror -DGSEAL_ENABLE \
+						-Wno-unused-parameter
 AM_CPPFLAGS = $(GTK_CFLAGS)
 AM_LDFLAGS = $(GTK_LIBS)
 
