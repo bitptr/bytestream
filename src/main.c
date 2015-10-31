@@ -1,3 +1,4 @@
+#include <sys/wait.h>
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,14 +6,18 @@
 
 #include <gtk/gtk.h>
 
-void	run_entry(GtkDialog *, gint, gpointer);
-void	gui_warn(char *);
+enum {
+	NAME_COLUMN,
+	EXEC_COLUMN,
+	NUM_COLUMNS,
+};
 
-int	run_cmd(const char *, char **);
-
+void		 run_cmd(const char *);
 GtkListStore	*collect_apps();
 GtkWidget	*apps_tree_new();
 void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
+void		 app_selected(GtkTreeView *, GtkTreePath *,
+    GtkTreeViewColumn *, gpointer);
 
 /*
  * A program runner.
@@ -49,6 +54,7 @@ main(int argc, char *argv[])
 	    /* fill */ 1, /* padding */ 3);
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+	g_signal_connect(apps_tree, "row-activated", G_CALLBACK(app_selected), NULL);
 
 	gtk_widget_show_all(window);
 
@@ -72,7 +78,7 @@ apps_tree_new()
 
 	name_col = gtk_tree_view_column_new_with_attributes(
 	    "Name", gtk_cell_renderer_text_new(),
-	    "text", 0,
+	    "text", NAME_COLUMN,
 	    NULL);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(apps_tree), name_col);
 
@@ -95,7 +101,7 @@ collect_apps()
 	size_t		 len;
 	const gchar *const *dirs;
 
-	apps = gtk_list_store_new(1, G_TYPE_STRING);
+	apps = gtk_list_store_new(NUM_COLUMNS, G_TYPE_STRING, G_TYPE_STRING);
 
 	for (dirs = g_get_system_data_dirs(); *dirs; dirs++) {
 		len = strlen(*dirs) + 14;
@@ -126,7 +132,7 @@ void
 apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 {
 	size_t		 len_fn;
-	char		*fn = NULL, *name = NULL;
+	char		*fn = NULL, *name_v = NULL, *exec_v = NULL;
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error;
@@ -147,111 +153,118 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 		if (!g_key_file_load_from_file(key_file, fn, G_KEY_FILE_NONE, &error))
 			errx(1, "%s", error->message);
 
-		name = g_key_file_get_locale_string(key_file, "Desktop Entry",
-		    "Name", NULL, &error);
-		if (name == NULL) {
+		name_v = g_key_file_get_locale_string(key_file,
+		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_NAME,
+		    NULL, &error);
+		if (name_v == NULL) {
 			warnx("g_key_file_get_locale_string: %s",
 			    error->message);
 			goto cont;
 		}
 
-		gtk_list_store_insert_with_values(apps, NULL, -1, 0, name, -1);
+		exec_v = g_key_file_get_locale_string(key_file,
+		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_EXEC,
+		    NULL, &error);
+		if (name_v == NULL) {
+			warnx("g_key_file_get_locale_string: %s",
+			    error->message);
+			goto cont;
+		}
+
+		gtk_list_store_insert_with_values(apps, NULL, -1,
+		    NAME_COLUMN, name_v,
+		    EXEC_COLUMN, exec_v,
+		    -1);
 
 cont:
-		free(name);
+		free(exec_v);
+		free(name_v);
 		free(fn);
 		if (key_file)
 			g_key_file_free(key_file);
 	}
 }
 
+
 /*
- * Run the program specified in the entry.
+ * Pull out the executable from the selected entry, and run it.
  */
 void
-run_entry(GtkDialog *dialog, gint response_id, gpointer user_data)
+app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
+    *column, gpointer user_data)
 {
-	const char	*cmd;
-	char		*errstr;
-	GtkEntry	*entry;
+	const char	*exec_v;
+	GtkTreeModel	*model;
+	GtkTreeIter	 iter;
+	GValue		 value = G_VALUE_INIT;
 
-	if (response_id != GTK_RESPONSE_OK)
-		return;
+	if ((model = gtk_tree_view_get_model(tree_view)) == NULL) {
+		warnx("gtk_tree_view_get_model is NULL");
+		goto done;
+	}
 
-	entry = GTK_ENTRY(user_data);
+	if (!gtk_tree_model_get_iter(model, &iter, path)) {
+		warnx("gtk_tree_model_get_iter: path does not exist");
+		goto done;
+	}
 
-	if (gtk_entry_get_text_length(entry) < 1)
-		return;
+	gtk_tree_model_get_value(model, &iter, EXEC_COLUMN, &value);
+	if (!G_VALUE_HOLDS_STRING(&value)) {
+		warnx("gtk_tree_model_get_value: exec is not a string");
+		goto done;
+	}
 
-	cmd = gtk_entry_get_text(entry);
+	exec_v = g_value_get_string(&value);
 
-	if (run_cmd(cmd, &errstr) < 0) {
-		warn(errstr);
-		gui_warn(errstr);
-		free(errstr);
-	} else
-		gtk_widget_destroy(GTK_WIDGET(dialog));
-}
+	run_cmd(exec_v);
 
-void
-gui_warn(char *errstr)
-{
-	fprintf(stderr, "errstr: %s\n", errstr);
+	gtk_main_quit();
+
+done:
+	g_value_unset(&value);
 }
 
 /*
  * Run the command.
- *
- * If a system call fails, return -1. Set errstr to a message prefix.
- * On success return 0.
  */
-int
-run_cmd(const char *cmd, char **errstr)
+void
+run_cmd(const char *cmd)
 {
-	int	ret = 0;
+	int	 status;
 	pid_t	 pid;
 	gchar	**argv;
 	GError	*errors;
 
-	*errstr = NULL;
-
 	if (!g_shell_parse_argv(cmd, NULL, &argv, &errors)) {
-		g_error_free(errors);
-		ret = -1;
-		if ((errstr = calloc(20, sizeof(char))) == NULL)
-			warn("calloc");
-		else
-			*errstr = "g_shell_parse_argv";
-		/* TODO show a better err message, using errors */
-		goto done;
+		warnx("g_shell_parse_argv: %s", errors->message);
+		return;
 	}
 
 	switch (pid = fork()) {
 	case -1:
-		ret = -1;
-		if ((errstr = calloc(5, sizeof(char))) == NULL)
-			warn("calloc");
-		else
-			*errstr = "fork";
-		break;
+		warn("fork");
+		return;
 	case 0:
 		if (setsid() < 0) {
-			ret = -1;
-			if ((errstr = calloc(7, sizeof(char))) == NULL)
-				warn("calloc");
-			else
-				*errstr = "setsid";
-			goto done;
+			warn("setsid");
+			return;
 		}
-		execv(argv[0], argv);
-		/* TODO find a way to gui_errx from here */
-		errx(1, "command failed: %s", cmd);
-		break;
+
+		switch (fork()) {
+		case -1:
+			warn("fork");
+			return;
+		case 0:
+			execvp(argv[0], argv);
+			errx(1, "command failed: %s", cmd);
+			break;
+		default:
+			exit(0);
+			break;
+		}
 	default:
 		/* parent */
+		waitpid(pid, &status, 0);
 		break;
 	}
-
-done:
-	return ret;
 }
