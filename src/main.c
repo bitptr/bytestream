@@ -86,6 +86,8 @@ apps_tree_new()
 	gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(apps_tree), FALSE);
 	gtk_tree_view_set_enable_search(GTK_TREE_VIEW(apps_tree), TRUE);
 	gtk_tree_view_set_search_column(GTK_TREE_VIEW(apps_tree), 0);
+	gtk_tree_sortable_set_sort_column_id(GTK_TREE_SORTABLE(apps),
+	    NAME_COLUMN, GTK_SORT_ASCENDING);
 
 	return apps_tree;
 }
