@@ -315,11 +315,15 @@ run_cmd(const char *cmd, int flags)
 	GtkWidget	*dialog, *box, *scrollable, *entry, *label = NULL;
 	GtkTextBuffer	*buf;
 	GtkTextIter	 start, end;
+	GValue		 g_9 = G_VALUE_INIT;
 
 	if (!flags) {
 		exec_cmd(cmd);
 		return 1;
 	}
+
+	g_value_init(&g_9, G_TYPE_INT);
+	g_value_set_int(&g_9, 3);
 
 	dialog = gtk_dialog_new_with_buttons(
 	    "Command options",
@@ -331,6 +335,9 @@ run_cmd(const char *cmd, int flags)
 	box = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
 	scrollable = gtk_scrolled_window_new(NULL, NULL);
 	entry = gtk_text_view_new();
+
+	gtk_widget_set_size_request(dialog, 300, 20);
+	g_object_set_property(G_OBJECT(box), "margin", &g_9);
 
 	if (flags & SINGLE_FILE_PLACEHOLDER) {
 		label = gtk_label_new("File name");
