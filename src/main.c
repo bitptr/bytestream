@@ -21,16 +21,17 @@ enum field_code {
 	MULTI_URL_PLACEHOLDER = 1 << 4,
 };
 
-int		 run_cmd(const char *, int);
-void		 exec_cmd(const char *);
-GtkListStore	*collect_apps();
-void		 collect_apps_in_dir(GtkListStore *, const char *);
-int		 field_codes(char *);
-char		*fill_in_command(const char *, const char *, int);
-const char	*placeholder_from_flags(int);
-GtkWidget	*apps_tree_new();
-void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
-void		 app_selected(GtkTreeView *, GtkTreePath *,
+static int		 run_cmd(const char *, int);
+static void		 exec_cmd(const char *);
+static GtkListStore	*collect_apps();
+static void		 collect_apps_in_dir(GtkListStore *, const char *);
+static int		 field_codes(char *);
+static char		*fill_in_command(const char *, const char *, int);
+static const char	*placeholder_from_flags(int);
+static void		 handle_response(GtkDialog *, gint, gpointer);
+static GtkWidget	*apps_tree_new();
+static void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
+static void		 app_selected(GtkTreeView *, GtkTreePath *,
     GtkTreeViewColumn *, gpointer);
 
 static GtkWidget	*window;
@@ -54,6 +55,7 @@ main(int argc, char *argv[])
 	    NULL,
 	    0,
 	    "_Close", GTK_RESPONSE_CLOSE,
+	    "_Run", GTK_RESPONSE_OK,
 	    NULL);
 	box = gtk_dialog_get_content_area(GTK_DIALOG(window));
 	label = gtk_label_new("Select program.");
@@ -70,6 +72,7 @@ main(int argc, char *argv[])
 	    /* fill */ 1, /* padding */ 3);
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+	g_signal_connect(window, "response", G_CALLBACK(handle_response), apps_tree);
 	g_signal_connect(apps_tree, "row-activated", G_CALLBACK(app_selected), NULL);
 
 	gtk_widget_show_all(window);
@@ -77,6 +80,32 @@ main(int argc, char *argv[])
 	gtk_main();
 
 	return 0;
+}
+
+/*
+ * Handle the buttons on the dialog.
+ */
+void
+handle_response(GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+	GtkTreeView		*tree_view;
+	GtkTreePath		*path = NULL;
+	GtkTreeViewColumn	*column = NULL;
+
+	if (response_id != GTK_RESPONSE_OK) {
+		gtk_main_quit();
+		return;
+	}
+
+	tree_view = (GtkTreeView *)user_data;
+
+	gtk_tree_view_get_cursor(tree_view, &path, &column);
+	if (path == NULL || column == NULL)
+		return;
+
+	app_selected(tree_view, path, column, NULL);
+
+	gtk_tree_path_free(path);
 }
 
 /*
@@ -307,6 +336,9 @@ done:
 	g_value_unset(&value);
 }
 
+/*
+ * Handle commands with flags and options, and ultimately run the command.
+ */
 int
 run_cmd(const char *cmd, int flags)
 {
@@ -396,7 +428,7 @@ done:
 }
 
 /*
- * Run the command.
+ * Execute the command.
  */
 void
 exec_cmd(const char *cmd)
@@ -440,6 +472,9 @@ exec_cmd(const char *cmd)
 	}
 }
 
+/*
+ * Replace the first placeholder with the text entered by the user.
+ */
 char *
 fill_in_command(const char *cmd, const char *interp, int flags)
 {
@@ -476,6 +511,9 @@ err:
 	return NULL;
 }
 
+/*
+ * Determine the placeholder from the flags.
+ */
 const char *
 placeholder_from_flags(int flags)
 {
