@@ -9,16 +9,31 @@
 enum {
 	NAME_COLUMN,
 	EXEC_COLUMN,
+	FCODE_COLUMN,
 	NUM_COLUMNS,
 };
 
-void		 run_cmd(const char *);
+enum field_code {
+	NO_PLACEHOLDER = 1 << 0,
+	SINGLE_FILE_PLACEHOLDER = 1 << 1,
+	MULTI_FILE_PLACEHOLDER = 1 << 2,
+	SINGLE_URL_PLACEHOLDER = 1 << 3,
+	MULTI_URL_PLACEHOLDER = 1 << 4,
+};
+
+int		 run_cmd(const char *, int);
+void		 exec_cmd(const char *);
 GtkListStore	*collect_apps();
 void		 collect_apps_in_dir(GtkListStore *, const char *);
+int		 field_codes(char *);
+char		*fill_in_command(const char *, char *, int);
+const char	*placeholder_from_flags(int);
 GtkWidget	*apps_tree_new();
 void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
 void		 app_selected(GtkTreeView *, GtkTreePath *,
     GtkTreeViewColumn *, gpointer);
+
+static GtkWidget	*window;
 
 /*
  * A program runner.
@@ -26,7 +41,7 @@ void		 app_selected(GtkTreeView *, GtkTreePath *,
 int
 main(int argc, char *argv[])
 {
-	GtkWidget	*window, *box, *label, *apps_tree, *scrollable;
+	GtkWidget	*box, *label, *apps_tree, *scrollable;
 	GValue		 g_9 = G_VALUE_INIT;
 
 	gtk_init(&argc, &argv);
@@ -101,7 +116,8 @@ collect_apps()
 	GtkListStore		*apps;
 	const gchar *const	*dirs;
 
-	apps = gtk_list_store_new(NUM_COLUMNS, G_TYPE_STRING, G_TYPE_STRING);
+	apps = gtk_list_store_new(
+	    NUM_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
 
 	for (dirs = g_get_system_data_dirs(); *dirs; dirs++)
 		collect_apps_in_dir(apps, *dirs);
@@ -148,6 +164,7 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 {
 	size_t		 len_fn;
 	char		*fn = NULL, *name_v = NULL, *exec_v = NULL;
+	int		 field_code_flags;
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error;
@@ -180,15 +197,18 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 		exec_v = g_key_file_get_locale_string(key_file,
 		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_EXEC,
 		    NULL, &error);
-		if (name_v == NULL) {
+		if (exec_v == NULL) {
 			warnx("g_key_file_get_locale_string: %s",
 			    error->message);
 			goto cont;
 		}
 
+		field_code_flags = field_codes(exec_v);
+
 		gtk_list_store_insert_with_values(apps, NULL, -1,
 		    NAME_COLUMN, name_v,
 		    EXEC_COLUMN, exec_v,
+		    FCODE_COLUMN, field_code_flags,
 		    -1);
 
 cont:
@@ -202,6 +222,44 @@ cont:
 	}
 }
 
+/*
+ * Identify which field code placeholders are used in the exec statement.
+ */
+int
+field_codes(char *cmd)
+{
+	int	flags = 0, found_percent = 0;;
+
+	for (; *cmd; cmd++) {
+		switch (*cmd) {
+		case '%':
+			found_percent = !found_percent;
+			break;
+		case 'f':
+			if (found_percent)
+				flags |= SINGLE_FILE_PLACEHOLDER;
+			found_percent = 0;
+			break;
+		case 'F':
+			if (found_percent)
+				flags |= MULTI_FILE_PLACEHOLDER;
+			found_percent = 0;
+			break;
+		case 'u':
+			if (found_percent)
+				flags |= SINGLE_URL_PLACEHOLDER;
+			found_percent = 0;
+			break;
+		case 'U':
+			if (found_percent)
+				flags |= MULTI_URL_PLACEHOLDER;
+			found_percent = 0;
+			break;
+		}
+	}
+
+	return flags;
+}
 
 /*
  * Pull out the executable from the selected entry, and run it.
@@ -210,6 +268,7 @@ void
 app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
     *column, gpointer user_data)
 {
+	int		 field_code_flags;
 	const char	*exec_v;
 	GtkTreeModel	*model;
 	GtkTreeIter	 iter;
@@ -231,21 +290,112 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 		goto done;
 	}
 
-	exec_v = g_value_get_string(&value);
+	exec_v = g_value_dup_string(&value);
+	g_value_unset(&value);
 
-	run_cmd(exec_v);
+	gtk_tree_model_get_value(model, &iter, FCODE_COLUMN, &value);
+	if (!G_VALUE_HOLDS_INT(&value)) {
+		warnx("gtk_tree_model_get_value: flags are not an integer");
+		goto done;
+	}
+	field_code_flags = g_value_get_int(&value);
 
-	gtk_main_quit();
+	if (run_cmd(exec_v, field_code_flags))
+		gtk_main_quit();
 
 done:
 	g_value_unset(&value);
+}
+
+int
+run_cmd(const char *cmd, int flags)
+{
+	int		 ret = 0;
+	char		*text = NULL, *new_cmd = NULL;
+	GtkWidget	*dialog, *box, *scrollable, *entry, *label = NULL;
+	GtkTextBuffer	*buf;
+	GtkTextIter	 start, end;
+
+	if (!flags) {
+		exec_cmd(cmd);
+		return 1;
+	}
+
+	dialog = gtk_dialog_new_with_buttons(
+	    "Command options",
+	    GTK_WINDOW(window),
+	     GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+	     "_Close", GTK_RESPONSE_CLOSE,
+	     "_Run", GTK_RESPONSE_OK,
+	     NULL);
+	box = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+	scrollable = gtk_scrolled_window_new(NULL, NULL);
+	entry = gtk_text_view_new();
+
+	if (flags & SINGLE_FILE_PLACEHOLDER) {
+		label = gtk_label_new("File name");
+	}
+
+	if (flags & SINGLE_URL_PLACEHOLDER) {
+		label = gtk_label_new("URI");
+	}
+
+	if (flags & MULTI_FILE_PLACEHOLDER) {
+		label = gtk_label_new("Files");
+	}
+
+	if (flags & MULTI_URL_PLACEHOLDER) {
+		label = gtk_label_new("URIs");
+	}
+
+	if (label) {
+		gtk_container_add(GTK_CONTAINER(scrollable), entry);
+		gtk_box_pack_start(GTK_BOX(box), label, /* expand */ 0,
+		    /* fill */ 1, /* padding */ 3);
+		gtk_box_pack_start(GTK_BOX(box), scrollable, /* expand */ 1,
+		    /* fill */ 1, /* padding */ 3);
+	}
+
+	gtk_widget_show_all(box);
+
+	switch (gtk_dialog_run(GTK_DIALOG(dialog))) {
+	case GTK_RESPONSE_OK:
+		buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(entry));
+		gtk_text_buffer_get_start_iter(buf, &start);
+		gtk_text_buffer_get_end_iter(buf, &end);
+		text = gtk_text_buffer_get_text(buf, &start, &end, TRUE);
+
+		if ((new_cmd = fill_in_command(cmd, text, flags)) == NULL) {
+			warnx("fill_in_command failed");
+			goto done;
+		}
+
+		exec_cmd(new_cmd);
+
+		ret = 1;
+		break;
+	case GTK_RESPONSE_CLOSE:
+	case GTK_RESPONSE_NONE:
+	case GTK_RESPONSE_DELETE_EVENT:
+		break;
+	default:
+		warnx("unknown result from gtk_dialog_run");
+		break;
+	}
+
+	gtk_widget_destroy(dialog);
+
+done:
+	free(new_cmd);
+	free(text);
+	return ret;
 }
 
 /*
  * Run the command.
  */
 void
-run_cmd(const char *cmd)
+exec_cmd(const char *cmd)
 {
 	int	 status;
 	pid_t	 pid;
@@ -284,4 +434,55 @@ run_cmd(const char *cmd)
 		waitpid(pid, &status, 0);
 		break;
 	}
+}
+
+char *
+fill_in_command(const char *cmd, char *interp, int flags)
+{
+	char		*new_cmd = NULL, *p;
+	const char	*placeholder;
+	int		 len_cmd, len_interp, len_ph, len_p;
+
+	placeholder = placeholder_from_flags(flags);
+	if (!*placeholder)
+		return (char *)cmd;
+
+	if ((p = strstr(cmd, placeholder)) == NULL)
+		return (char *)cmd;
+
+	len_p = strlen(p);
+	len_ph = strlen(placeholder);
+	len_cmd = strlen(cmd);
+	len_interp = strlen(interp);
+
+	if ((new_cmd = calloc(len_cmd - len_ph + len_interp, sizeof(char))) == NULL) {
+		warn("calloc");
+		goto err;
+	}
+
+	strlcpy(new_cmd, cmd, len_cmd + len_p + 1);
+	snprintf(new_cmd + (p - cmd), len_interp + len_p-len_ph + 1, "%s%s",
+	    interp, p + 2);
+
+	return new_cmd;
+
+err:
+	free(p);
+	free(new_cmd);
+	return NULL;
+}
+
+const char *
+placeholder_from_flags(int flags)
+{
+	if (flags & SINGLE_FILE_PLACEHOLDER)
+		return "%f";
+	if (flags & MULTI_FILE_PLACEHOLDER)
+		return "%F";
+	if (flags & SINGLE_URL_PLACEHOLDER)
+		return "%u";
+	if (flags & MULTI_URL_PLACEHOLDER)
+		return "%U";
+
+	return NULL;
 }
