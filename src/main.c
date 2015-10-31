@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <gtk/gtk.h>
 
@@ -21,6 +22,10 @@ enum field_code {
 	MULTI_URL_PLACEHOLDER = 1 << 4,
 };
 
+__dead void		 usage();
+static void		 run_app(char *);
+static gboolean		 run_desktop_entry(GtkTreeModel *, GtkTreePath *,
+    GtkTreeIter *, gpointer);
 static int		 run_cmd(const char *, int);
 static void		 exec_cmd(const char *);
 static GtkListStore	*collect_apps();
@@ -33,8 +38,10 @@ static GtkWidget	*apps_tree_new();
 static void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
 static void		 app_selected(GtkTreeView *, GtkTreePath *,
     GtkTreeViewColumn *, gpointer);
+static gboolean		 run_desktop_entry(GtkTreeModel *, GtkTreePath *,
+    GtkTreeIter *, gpointer);
 
-static GtkWidget	*window;
+static GtkWidget	*window = NULL;
 
 /*
  * A program runner.
@@ -42,10 +49,24 @@ static GtkWidget	*window;
 int
 main(int argc, char *argv[])
 {
+	int		 ch;
 	GtkWidget	*box, *label, *apps_tree, *scrollable;
 	GValue		 g_9 = G_VALUE_INIT;
 
+	while ((ch = getopt(argc, argv, "")) != -1)
+		usage();
+	argc -= optind;
+	argv += optind;
+
 	gtk_init(&argc, &argv);
+
+	if (argc > 1)
+		usage();
+
+	if (argc == 1) {
+		run_app(argv[0]);
+		return 0;
+	}
 
 	g_value_init(&g_9, G_TYPE_INT);
 	g_value_set_int(&g_9, 9);
@@ -80,6 +101,76 @@ main(int argc, char *argv[])
 	gtk_main();
 
 	return 0;
+}
+
+/*
+ * Show usage information, and then quit.
+ */
+__dead void
+usage()
+{
+	printf("usage: bytestream [entry name]\n");
+	exit(0);
+}
+
+/*
+ * Run a specific application by name.
+ */
+static void
+run_app(char *name)
+{
+	GtkListStore	*apps;
+
+	apps = collect_apps();
+	gtk_tree_model_foreach(GTK_TREE_MODEL(apps), run_desktop_entry, name);
+}
+
+/*
+ * If the given row in the model is the name we're looking for, run it.
+ * Otherwise keep looking.
+ */
+gboolean
+run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
+    gpointer data)
+{
+	int	 flags = 0;
+	char	*name, *name_v, *exec_v;
+	GValue	 value = G_VALUE_INIT;
+
+	name = (char *)data;
+
+	gtk_tree_model_get_value(model, iter, NAME_COLUMN, &value);
+	if (!G_VALUE_HOLDS_STRING(&value)) {
+		warnx("gtk_tree_model_get_value: name is not a string");
+		return FALSE;
+	}
+	name_v = g_value_dup_string(&value);
+	g_value_unset(&value);
+
+	if (strlen(name_v) != strlen(name) ||
+	    strncmp(name_v, name, strlen(name)) != 0)
+		return FALSE;
+
+	gtk_tree_model_get_value(model, iter, EXEC_COLUMN, &value);
+	if (!G_VALUE_HOLDS_STRING(&value)) {
+		warnx("gtk_tree_model_get_value: exec is not a string");
+		return TRUE;
+	}
+
+	exec_v = g_value_dup_string(&value);
+	g_value_unset(&value);
+
+	gtk_tree_model_get_value(model, iter, FCODE_COLUMN, &value);
+	if (!G_VALUE_HOLDS_INT(&value)) {
+		warnx("gtk_tree_model_get_value: flags are not an integer");
+		return TRUE;
+	}
+	flags = g_value_get_int(&value);
+
+	if (run_cmd(exec_v, flags))
+		return TRUE;
+
+	return TRUE;
 }
 
 /*
