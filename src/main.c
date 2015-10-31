@@ -14,6 +14,7 @@ enum {
 
 void		 run_cmd(const char *);
 GtkListStore	*collect_apps();
+void		 collect_apps_in_dir(GtkListStore *, const char *);
 GtkWidget	*apps_tree_new();
 void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
 void		 app_selected(GtkTreeView *, GtkTreePath *,
@@ -95,34 +96,46 @@ apps_tree_new()
 GtkListStore *
 collect_apps()
 {
-	GtkListStore	*apps;
-	DIR		*dirp;
-	char		*dir;
-	size_t		 len;
-	const gchar *const *dirs;
+	GtkListStore		*apps;
+	const gchar *const	*dirs;
 
 	apps = gtk_list_store_new(NUM_COLUMNS, G_TYPE_STRING, G_TYPE_STRING);
 
-	for (dirs = g_get_system_data_dirs(); *dirs; dirs++) {
-		len = strlen(*dirs) + 14;
-		if ((dir = calloc(len, sizeof(char))) == NULL)
-			err(1, "calloc");
-		if (snprintf(dir, len, "%s/%s", *dirs, "applications") >= (int)len)
-			err(1, "snprintf");
+	for (dirs = g_get_system_data_dirs(); *dirs; dirs++)
+		collect_apps_in_dir(apps, *dirs);
 
-		if ((dirp = opendir(dir)) == NULL)
-			goto cont;
-
-		apps_list_insert_files(apps, dir, dirp, len);
-
-		if (dirp && closedir(dirp) < 0)
-			err(1, "closedir");
-
-cont:
-		free(dir);
-	}
+	collect_apps_in_dir(apps, g_get_user_data_dir());
 
 	return apps;
+}
+
+/*
+ * Populate a GtkListStore* with data from desktop entries appearing in the
+ * given data directory.
+ */
+void
+collect_apps_in_dir(GtkListStore *apps, const char *data_dir)
+{
+	DIR	*dirp;
+	char	*dir;
+	size_t	 len;
+
+	len = strlen(data_dir) + 14;
+	if ((dir = calloc(len, sizeof(char))) == NULL)
+		err(1, "calloc");
+	if (snprintf(dir, len, "%s/%s", data_dir, "applications") >= (int)len)
+		err(1, "snprintf");
+
+	if ((dirp = opendir(dir)) == NULL)
+		goto done;
+
+	apps_list_insert_files(apps, dir, dirp, len);
+
+	if (dirp && closedir(dirp) < 0)
+		err(1, "closedir");
+
+done:
+	free(dir);
 }
 
 /*
@@ -177,11 +190,13 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 		    -1);
 
 cont:
-		free(exec_v);
-		free(name_v);
-		free(fn);
-		if (key_file)
+		free(exec_v); exec_v = NULL;
+		free(name_v); name_v = NULL;
+		free(fn); fn = NULL;
+		if (key_file) {
 			g_key_file_free(key_file);
+			key_file = NULL;
+		}
 	}
 }
 
