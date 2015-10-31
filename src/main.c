@@ -26,7 +26,7 @@ void		 exec_cmd(const char *);
 GtkListStore	*collect_apps();
 void		 collect_apps_in_dir(GtkListStore *, const char *);
 int		 field_codes(char *);
-char		*fill_in_command(const char *, char *, int);
+char		*fill_in_command(const char *, const char *, int);
 const char	*placeholder_from_flags(int);
 GtkWidget	*apps_tree_new();
 void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
@@ -311,10 +311,10 @@ int
 run_cmd(const char *cmd, int flags)
 {
 	int		 ret = 0;
-	char		*text = NULL, *new_cmd = NULL;
-	GtkWidget	*dialog, *box, *scrollable, *entry, *label = NULL;
-	GtkTextBuffer	*buf;
-	GtkTextIter	 start, end;
+	char		*new_cmd = NULL;
+	const char	*text = NULL;
+	GtkWidget	*dialog, *box, *entry, *label = NULL;
+	GtkEntryBuffer	*buf;
 	GValue		 g_9 = G_VALUE_INIT;
 
 	if (!flags) {
@@ -333,11 +333,12 @@ run_cmd(const char *cmd, int flags)
 	     "_Run", GTK_RESPONSE_OK,
 	     NULL);
 	box = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-	scrollable = gtk_scrolled_window_new(NULL, NULL);
-	entry = gtk_text_view_new();
+	entry = gtk_entry_new();
 
 	gtk_widget_set_size_request(dialog, 300, 20);
 	g_object_set_property(G_OBJECT(box), "margin", &g_9);
+	gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
+	gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
 
 	if (flags & SINGLE_FILE_PLACEHOLDER) {
 		label = gtk_label_new("File name");
@@ -356,10 +357,9 @@ run_cmd(const char *cmd, int flags)
 	}
 
 	if (label) {
-		gtk_container_add(GTK_CONTAINER(scrollable), entry);
 		gtk_box_pack_start(GTK_BOX(box), label, /* expand */ 0,
 		    /* fill */ 1, /* padding */ 3);
-		gtk_box_pack_start(GTK_BOX(box), scrollable, /* expand */ 1,
+		gtk_box_pack_start(GTK_BOX(box), entry, /* expand */ 1,
 		    /* fill */ 1, /* padding */ 3);
 	}
 
@@ -367,10 +367,8 @@ run_cmd(const char *cmd, int flags)
 
 	switch (gtk_dialog_run(GTK_DIALOG(dialog))) {
 	case GTK_RESPONSE_OK:
-		buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(entry));
-		gtk_text_buffer_get_start_iter(buf, &start);
-		gtk_text_buffer_get_end_iter(buf, &end);
-		text = gtk_text_buffer_get_text(buf, &start, &end, TRUE);
+		buf = gtk_entry_get_buffer(GTK_ENTRY(entry));
+		text = gtk_entry_buffer_get_text(buf);
 
 		if ((new_cmd = fill_in_command(cmd, text, flags)) == NULL) {
 			warnx("fill_in_command failed");
@@ -394,7 +392,6 @@ run_cmd(const char *cmd, int flags)
 
 done:
 	free(new_cmd);
-	free(text);
 	return ret;
 }
 
@@ -444,7 +441,7 @@ exec_cmd(const char *cmd)
 }
 
 char *
-fill_in_command(const char *cmd, char *interp, int flags)
+fill_in_command(const char *cmd, const char *interp, int flags)
 {
 	char		*new_cmd = NULL, *p;
 	const char	*placeholder;
