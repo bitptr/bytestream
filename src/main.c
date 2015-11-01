@@ -29,17 +29,19 @@ static gboolean		 run_desktop_entry(GtkTreeModel *, GtkTreePath *,
 static int		 run_cmd(const char *, int);
 static void		 exec_cmd(const char *);
 static GtkListStore	*collect_apps();
-static void		 collect_apps_in_dir(GtkListStore *, const char *);
 static int		 field_codes(char *);
 static char		*fill_in_command(const char *, const char *, int);
 static const char	*placeholder_from_flags(int);
 static void		 handle_response(GtkDialog *, gint, gpointer);
 static GtkWidget	*apps_tree_new();
-static void		 apps_list_insert_files(GtkListStore *, char *, DIR *, size_t);
+static void		 apps_list_insert_files(GtkListStore *, GHashTable *,
+    char *, DIR *, size_t);
 static void		 app_selected(GtkTreeView *, GtkTreePath *,
     GtkTreeViewColumn *, gpointer);
 static gboolean		 run_desktop_entry(GtkTreeModel *, GtkTreePath *,
     GtkTreeIter *, gpointer);
+static void		 collect_apps_in_dir(GtkListStore *, GHashTable *,
+    const char *);
 
 static GtkWidget	*window = NULL;
 
@@ -235,14 +237,18 @@ collect_apps()
 {
 	GtkListStore		*apps;
 	const gchar *const	*dirs;
+	GHashTable		*entry_files;
 
 	apps = gtk_list_store_new(
 	    NUM_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
+	entry_files = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
+
+	collect_apps_in_dir(apps, entry_files, g_get_user_data_dir());
 
 	for (dirs = g_get_system_data_dirs(); *dirs; dirs++)
-		collect_apps_in_dir(apps, *dirs);
+		collect_apps_in_dir(apps, entry_files, *dirs);
 
-	collect_apps_in_dir(apps, g_get_user_data_dir());
+	g_hash_table_unref(entry_files);
 
 	return apps;
 }
@@ -252,7 +258,8 @@ collect_apps()
  * given data directory.
  */
 void
-collect_apps_in_dir(GtkListStore *apps, const char *data_dir)
+collect_apps_in_dir(GtkListStore *apps, GHashTable *entry_files,
+    const char *data_dir)
 {
 	DIR	*dirp;
 	char	*dir;
@@ -267,7 +274,7 @@ collect_apps_in_dir(GtkListStore *apps, const char *data_dir)
 	if ((dirp = opendir(dir)) == NULL)
 		goto done;
 
-	apps_list_insert_files(apps, dir, dirp, len);
+	apps_list_insert_files(apps, entry_files, dir, dirp, len);
 
 	if (dirp && closedir(dirp) < 0)
 		err(1, "closedir");
@@ -280,7 +287,8 @@ done:
  * Insert all desktop files in a directory into the GtkListStore.
  */
 void
-apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
+apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
+    DIR *dirp, size_t len)
 {
 	size_t		 len_fn;
 	char		*fn = NULL, *name_v = NULL, *exec_v = NULL;
@@ -321,6 +329,9 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 			g_clear_error(&error);
 			goto cont;
 		}
+
+		if (!g_hash_table_add(entry_files, strdup(name_v)))
+			goto cont;
 
 		exec_v = g_key_file_get_locale_string(key_file,
 		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_EXEC,
