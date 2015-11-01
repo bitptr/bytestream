@@ -5,3 +5,15 @@
 - icons
 - show command
 - Path
+- handle different Types
+- NoDisplay
+- Hidden
+- OnlyShowIn
+- NotShowIn
+- duplicates
+- DBusActivatable
+- DnD for passing arguments
+- Keywords?
+- MimeType for DnD?
+- Actions
+- man page
