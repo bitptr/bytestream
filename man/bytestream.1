@@ -1,0 +1,110 @@
+.\" Copyright (c) 2015 Mike Burns <mike@mike-burns.com>
+.\"
+.\" Permission to use, copy, modify, and distribute this software for any
+.\" purpose with or without fee is hereby granted, provided that the above
+.\" copyright notice and this permission notice appear in all copies.
+.\"
+.\" THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+.\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+.\"
+.\" The following requests are required for all man pages.
+.\"
+.\" Remove `\&' from the line below.
+.Dd Nov 1, 2015
+.Dt BYTESTREAM 1
+.Os
+.Sh NAME
+.Nm bytestream
+.Nd GUI for running desktop applications
+.Sh SYNOPSIS
+.Nm bytestream
+.Op Ar name
+.Sh DESCRIPTION
+The
+.Nm
+utility presents all available desktop entries and runs the selected
+application. Any placeholders in the executable are prompted for and expanded
+as appropriate.
+.Pp
+If passed the exact name of an application, it will run that application
+instead.
+.
+.Ss Keyboard Shortcuts
+An application in the list can be selected by typing the case-insensitive name
+of the program.
+.Pp
+.\" In the following descriptions, ^X means control-X.
+.Bl -tag -width XXXXXXXXXXXX
+.It Ic ENTER , Ic Alt-R
+Run the selected application.
+.It Ic Up
+Select the prior application.
+.It Ic Down
+Select the next application.
+.It Ic ESC , Ic Alt-C
+Quit.
+.El
+.
+.Sh ENVIRONMENT
+.
+This program makes use of the GTK+ library, which in turn supports many
+environment variables.  Since we do not control these environment variables we
+instead suggest you look in the
+.Lk https://developer.gnome.org/gtk3/stable/gtk-running.html GTK documentation .
+.
+.Pp
+The
+.Li .desktop
+files are searched using the XDG environment variables, which you can read more
+about in the
+.Lk http://standards.freedesktop.org/basedir-spec/latest/ar01s03.html XDG Base Directory Specification .
+In particular, the
+.Ev XDG_DATA_DIR
+environment variable is used.
+.
+.Sh FILES
+The desktop entry files are found under the
+.Pa applications
+directory under the system data directories and the user data directory. This
+can be controlled by the
+.Ev XDG_DATA_DIR
+environment variable. The default application directories are:
+.Bl -bullet
+.It
+.Pa /usr/local/share/applications ,
+.It
+.Pa /usr/share/applications ,
+and
+.It
+.Pa $HOME/.local/share/applications .
+.El
+.Sh EXAMPLES
+To see all known applications, pass no arguments:
+.Pp
+.Dl bytestream
+.Pp
+Run a specific program, prompting for its flags:
+.Pp
+.Dl bytestream Qq Firefox Web Browser
+.Pp
+.\" .Sh DIAGNOSTICS
+.Sh SEE ALSO
+.Xr xdg-open 1
+.Sh STANDARDS
+This makes heavy use of the
+.Lk http://standards.freedesktop.org/desktop-entry-spec/desktop-entry-spec-1.1.html Desktop Entry Specification 1.1 .
+.Pp
+Files are found according to the
+.Lk http://standards.freedesktop.org/basedir-spec/ XDG Base Directory Specification .
+.\" .Lk http://standards.freedesktop.org/menu-spec/menu-spec-1.1.html Desktop Menu Specification 1.1 .
+.\" http://standards.freedesktop.org/icon-naming-spec/
+.Sh AUTHORS
+.An -split
+.An "Mike Burns" Aq Mt mike@mike-burns.com
+.\" .Sh CAVEATS
+.\" .Sh BUGS
