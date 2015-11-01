@@ -288,6 +288,7 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error;
+	gboolean	 nodisplay_v;
 
 	while ((dp = readdir(dirp)) != NULL) {
 		if (dp->d_namlen <= 8)
@@ -305,12 +306,19 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 		if (!g_key_file_load_from_file(key_file, fn, G_KEY_FILE_NONE, &error))
 			errx(1, "%s", error->message);
 
+		nodisplay_v = g_key_file_get_boolean(key_file,
+		    G_KEY_FILE_DESKTOP_GROUP,
+		    G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY, NULL);
+		if (nodisplay_v != FALSE)
+			goto cont;
+
 		name_v = g_key_file_get_locale_string(key_file,
 		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_NAME,
 		    NULL, &error);
 		if (name_v == NULL) {
 			warnx("g_key_file_get_locale_string: %s",
 			    error->message);
+			g_clear_error(&error);
 			goto cont;
 		}
 
@@ -320,6 +328,7 @@ apps_list_insert_files(GtkListStore *apps, char *dir, DIR *dirp, size_t len)
 		if (exec_v == NULL) {
 			warnx("g_key_file_get_locale_string: %s",
 			    error->message);
+			g_clear_error(&error);
 			goto cont;
 		}
 

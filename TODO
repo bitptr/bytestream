@@ -6,11 +6,12 @@
 - show command
 - Path
 - handle different Types
-- NoDisplay
 - Hidden
 - OnlyShowIn
 - NotShowIn
 - duplicates
+  "When two desktop entries have the same name, the one appearing earlier in the path is used."
+  so track the file basename and skip repeats
 - DBusActivatable
 - DnD for passing arguments
 - Keywords?
