@@ -2,16 +2,18 @@
 - %c
 - %k
 - Terminal
-- icons
-- show command
 - Path
 - handle different Types
 - Hidden
 - OnlyShowIn
 - NotShowIn
 - DBusActivatable
-- DnD for passing arguments
 - Keywords?
-- MimeType for DnD?
 - Actions
 - Comment (tooltip, perhaps)
+
+- file completion (%f/%F, %u/%U file:///)
+- DnD for passing arguments
+  o MimeType for DnD?
+
+- icons

@@ -7,6 +7,8 @@
 
 #include <gtk/gtk.h>
 
+#include "entrycellrenderer.h"
+
 enum {
 	NAME_COLUMN,
 	EXEC_COLUMN,
@@ -210,14 +212,23 @@ apps_tree_new()
 	GtkWidget		*apps_tree;
 	GtkListStore		*apps;
 	GtkTreeViewColumn	*name_col;
+	GValue		 	 g_3 = G_VALUE_INIT;
+	GtkCellRenderer		*cellr;
+
+	g_value_init(&g_3, G_TYPE_INT);
+	g_value_set_int(&g_3, 3);
 
 	apps = collect_apps();
 	apps_tree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(apps));
 
+	cellr = bs_cell_renderer_entry_new();
 	name_col = gtk_tree_view_column_new_with_attributes(
-	    "Name", gtk_cell_renderer_text_new(),
-	    "text", NAME_COLUMN,
+	    "Entry", cellr,
+	    "name", NAME_COLUMN,
+	    "exec", EXEC_COLUMN,
 	    NULL);
+	g_object_set_property(G_OBJECT(cellr), "xpad", &g_3);
+	g_object_set_property(G_OBJECT(cellr), "ypad", &g_3);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(apps_tree), name_col);
 
 	gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(apps_tree), FALSE);
