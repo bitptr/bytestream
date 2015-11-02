@@ -13,6 +13,7 @@ enum {
 	NAME_COLUMN,
 	EXEC_COLUMN,
 	FCODE_COLUMN,
+	ICON_COLUMN,
 	NUM_COLUMNS,
 };
 
@@ -226,6 +227,7 @@ apps_tree_new()
 	    "Entry", cellr,
 	    "name", NAME_COLUMN,
 	    "exec", EXEC_COLUMN,
+	    "icon", ICON_COLUMN,
 	    NULL);
 	g_object_set_property(G_OBJECT(cellr), "xpad", &g_3);
 	g_object_set_property(G_OBJECT(cellr), "ypad", &g_3);
@@ -250,8 +252,8 @@ collect_apps()
 	const gchar *const	*dirs;
 	GHashTable		*entry_files;
 
-	apps = gtk_list_store_new(
-	    NUM_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
+	apps = gtk_list_store_new(NUM_COLUMNS,
+	    G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING);
 	entry_files = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
 
 	collect_apps_in_dir(apps, entry_files, g_get_user_data_dir());
@@ -303,10 +305,11 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 {
 	size_t		 len_fn;
 	char		*fn = NULL, *name_v = NULL, *exec_v = NULL;
+	char		*icon_v = NULL;
 	int		 field_code_flags;
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
-	GError		*error;
+	GError		*error = NULL;
 	gboolean	 nodisplay_v;
 
 	while ((dp = readdir(dirp)) != NULL) {
@@ -356,15 +359,23 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 
 		field_code_flags = field_codes(exec_v);
 
+		icon_v = g_key_file_get_locale_string(key_file,
+		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_ICON,
+		    NULL, &error);
+		if (icon_v ==NULL)
+			g_clear_error(&error);
+
 		gtk_list_store_insert_with_values(apps, NULL, -1,
 		    NAME_COLUMN, name_v,
 		    EXEC_COLUMN, exec_v,
 		    FCODE_COLUMN, field_code_flags,
+		    ICON_COLUMN, icon_v,
 		    -1);
 
 cont:
 		free(exec_v); exec_v = NULL;
 		free(name_v); name_v = NULL;
+		free(icon_v); icon_v = NULL;
 		free(fn); fn = NULL;
 		if (key_file) {
 			g_key_file_free(key_file);

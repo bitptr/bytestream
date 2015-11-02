@@ -1,3 +1,5 @@
+#include <sys/stat.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,18 +8,20 @@
 
 #include "entrycellrenderer.h"
 
-#define CELL_HEIGHT 30
+#define CELL_HEIGHT 32
 
 enum {
 	PROP_0,
 	PROP_NAME,
 	PROP_EXEC,
+	PROP_ICON,
 	NUM_PROPS,
 };
 
 struct _BsCellRendererEntryPrivate {
 	char	*name;
 	char	*exec;
+	char	*icon;
 };
 
 static void	bs_cell_renderer_entry_class_init(BsCellRendererEntryClass *);
@@ -31,6 +35,7 @@ static void	bs_cell_renderer_entry_get_size(GtkCellRenderer *,
 static void	bs_cell_renderer_entry_render(GtkCellRenderer *,
     cairo_t *, GtkWidget *, const GdkRectangle *,
     const GdkRectangle *, GtkCellRendererState);
+char		*resolve_icon(char *);
 
 G_DEFINE_TYPE_WITH_PRIVATE(
     BsCellRendererEntry, bs_cell_renderer_entry, GTK_TYPE_CELL_RENDERER)
@@ -61,6 +66,12 @@ bs_cell_renderer_entry_class_init(BsCellRendererEntryClass *klass)
 	    PROP_EXEC,
 	    g_param_spec_string("exec", "Exec", "The Exec from the entry",
 		    NULL, G_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+
+	/* property: "icon" */
+	g_object_class_install_property(object_class,
+	    PROP_ICON,
+	    g_param_spec_string("icon", "Icon", "The Icon from the entry",
+		    NULL, G_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
 }
 
 static void
@@ -69,6 +80,7 @@ bs_cell_renderer_entry_init(BsCellRendererEntry *cell)
 	cell->priv = bs_cell_renderer_entry_get_instance_private(cell);
 	cell->priv->name = NULL;
 	cell->priv->exec = NULL;
+	cell->priv->icon = NULL;
 }
 
 GtkCellRenderer *
@@ -94,6 +106,9 @@ bs_cell_renderer_entry_get_property(GObject *object, guint param_id,
 	case PROP_EXEC:
 		g_value_set_string(value, priv->exec);
 		break;
+	case PROP_ICON:
+		g_value_set_string(value, priv->icon);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID(object, param_id, pspec);
 	}
@@ -118,6 +133,11 @@ bs_cell_renderer_entry_set_property(GObject *object, guint param_id,
 	case PROP_EXEC:
 		free(priv->exec);
 		priv->exec = g_value_dup_string(value);
+		g_object_notify_by_pspec(object, pspec);
+		break;
+	case PROP_ICON:
+		free(priv->icon);
+		priv->icon = resolve_icon(g_value_dup_string(value));
 		g_object_notify_by_pspec(object, pspec);
 		break;
 	default:
@@ -146,7 +166,7 @@ bs_cell_renderer_entry_render(GtkCellRenderer *cellr, cairo_t *cr,
     const GdkRectangle *cell_area, GtkCellRendererState flags)
 {
 	int		 		 name_width, name_height;
-	int				 xpad, ypad;
+	int				 xpad, ypad, icon_offset = CELL_HEIGHT;
 	BsCellRendererEntry		*cell;
 	BsCellRendererEntryPrivate	*priv;
 	GtkStyleContext			*style_ctx;
@@ -154,6 +174,8 @@ bs_cell_renderer_entry_render(GtkCellRenderer *cellr, cairo_t *cr,
 	PangoLayout			*name_layout, *cmd_layout;
 	PangoAttrList			*list;
 	PangoAttribute			*attr;
+	GdkPixbuf			*icon = NULL;
+	GError				*error = NULL;
 
 	cell = BS_CELL_RENDERER_ENTRY(cellr);
 	priv = cell->priv;
@@ -176,10 +198,43 @@ bs_cell_renderer_entry_render(GtkCellRenderer *cellr, cairo_t *cr,
 	pango_attr_list_insert(list, attr);
 	pango_layout_set_attributes(name_layout, list);
 
-	gtk_render_layout(style_ctx, cr, cell_area->x + xpad,
+	if (priv->icon)
+		icon = gdk_pixbuf_new_from_file_at_size(priv->icon, CELL_HEIGHT, -1, &error);
+	if (icon)
+		gtk_render_icon(style_ctx, cr, icon, cell_area->x + xpad,
+		    cell_area->y + ypad);
+
+	gtk_render_layout(style_ctx, cr,
+	    icon_offset + xpad + cell_area->x + xpad,
 	    cell_area->y + ypad, name_layout);
-	gtk_render_layout(style_ctx, cr, cell_area->x + xpad,
+	gtk_render_layout(style_ctx, cr,
+	    icon_offset + xpad + cell_area->x + xpad,
 	    cell_area->y + name_height + ypad, cmd_layout);
 
 	pango_attr_list_unref(list);
+}
+
+char *
+resolve_icon(char *name)
+{
+	char		*fn;
+	struct stat	sb;
+	GtkIconInfo	*info;
+
+	if (!name)
+		return NULL;
+
+	if (stat(name, &sb) == 0)
+		return name;
+
+	info = gtk_icon_theme_lookup_icon(gtk_icon_theme_get_default(), name,
+	    CELL_HEIGHT, 0);
+
+	if (info) {
+		fn = strdup(gtk_icon_info_get_filename(info));
+		g_object_unref(info);
+		return fn;
+	}
+
+	return NULL;
 }
