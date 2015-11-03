@@ -14,6 +14,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _BSD_SOURCE 1
+
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include <sys/stat.h>
 
 #include <stdio.h>
@@ -23,6 +29,7 @@
 #include <gtk/gtk.h>
 
 #include "entrycellrenderer.h"
+#include "compat.h"
 
 #define CELL_HEIGHT 32
 

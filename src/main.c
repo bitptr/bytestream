@@ -14,8 +14,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _BSD_SOURCE 1
+
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include <sys/wait.h>
 #include <err.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +31,7 @@
 #include <gtk/gtk.h>
 
 #include "entrycellrenderer.h"
+#include "compat.h"
 
 enum {
 	NAME_COLUMN,
@@ -332,19 +340,20 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 	size_t		 len_fn;
 	char		*fn = NULL, *name_v = NULL, *exec_v = NULL;
 	char		*icon_v = NULL;
-	int		 field_code_flags;
+	int		 field_code_flags, len_name;
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error = NULL;
 	gboolean	 nodisplay_v, hidden_v, use_term_v;
 
 	while ((dp = readdir(dirp)) != NULL) {
-		if (dp->d_namlen <= 8)
+		len_name = strlen(dp->d_name);
+		if (len_name <= 8)
 			goto cont;
-		if (strncmp(dp->d_name + dp->d_namlen - 8, ".desktop", 8) != 0)
+		if (strncmp(dp->d_name + len_name - 8, ".desktop", 8) != 0)
 			goto cont;
 
-		len_fn = dp->d_namlen + len + 1;
+		len_fn = len_name + len + 1;
 		if ((fn = calloc(len_fn, sizeof(char))) == NULL)
 			err(1, "calloc");
 		if (snprintf(fn, len_fn, "%s/%s", dir, dp->d_name) >= (int)len_fn)
