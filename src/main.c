@@ -14,6 +14,7 @@ enum {
 	EXEC_COLUMN,
 	FCODE_COLUMN,
 	ICON_COLUMN,
+	TERM_COLUMN,
 	NUM_COLUMNS,
 };
 
@@ -27,12 +28,12 @@ enum field_code {
 
 __dead void		 usage();
 static void		 run_app(char *);
-static gboolean		 run_desktop_entry(GtkTreeModel *, GtkTreePath *,
-    GtkTreeIter *, gpointer);
-static int		 run_cmd(const char *, int);
+static int		 run_cmd(const char *, int, gboolean);
 static void		 exec_cmd(const char *);
 static GtkListStore	*collect_apps();
 static int		 field_codes(char *);
+static int		 fill_in_flags(char **, int);
+static int		 add_terminal(char **);
 static char		*fill_in_command(const char *, const char *, int);
 static const char	*placeholder_from_flags(int);
 static void		 handle_response(GtkDialog *, gint, gpointer);
@@ -138,9 +139,10 @@ gboolean
 run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
     gpointer data)
 {
-	int	 flags = 0;
-	char	*name, *name_v, *exec_v;
-	GValue	 value = G_VALUE_INIT;
+	int		 flags = 0;
+	char		*name, *name_v, *exec_v;
+	gboolean	 use_term;
+	GValue	 	 value = G_VALUE_INIT;
 
 	name = (char *)data;
 
@@ -161,7 +163,6 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 		warnx("gtk_tree_model_get_value: exec is not a string");
 		return TRUE;
 	}
-
 	exec_v = g_value_dup_string(&value);
 	g_value_unset(&value);
 
@@ -171,8 +172,17 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 		return TRUE;
 	}
 	flags = g_value_get_int(&value);
+	g_value_unset(&value);
 
-	if (run_cmd(exec_v, flags))
+	gtk_tree_model_get_value(model, iter, TERM_COLUMN, &value);
+	if (!G_VALUE_HOLDS_BOOLEAN(&value)) {
+		warnx("gtk_tree_model_get_value: term is not a Boolean");
+		return TRUE;
+	}
+	use_term = g_value_get_boolean(&value);
+	g_value_unset(&value);
+
+	if (run_cmd(exec_v, flags, use_term))
 		return TRUE;
 
 	return TRUE;
@@ -253,7 +263,7 @@ collect_apps()
 	GHashTable		*entry_files;
 
 	apps = gtk_list_store_new(NUM_COLUMNS,
-	    G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING);
+	    G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_BOOLEAN);
 	entry_files = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
 
 	collect_apps_in_dir(apps, entry_files, g_get_user_data_dir());
@@ -310,7 +320,7 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error = NULL;
-	gboolean	 nodisplay_v, hidden_v;
+	gboolean	 nodisplay_v, hidden_v, use_term_v;
 
 	while ((dp = readdir(dirp)) != NULL) {
 		if (dp->d_namlen <= 8)
@@ -368,14 +378,19 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 		icon_v = g_key_file_get_locale_string(key_file,
 		    G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_ICON,
 		    NULL, &error);
-		if (icon_v ==NULL)
-			g_clear_error(&error);
+		g_clear_error(&error);
+
+		use_term_v = g_key_file_get_boolean(key_file,
+		    G_KEY_FILE_DESKTOP_GROUP,
+		    G_KEY_FILE_DESKTOP_KEY_TERMINAL, NULL);
+		g_clear_error(&error);
 
 		gtk_list_store_insert_with_values(apps, NULL, -1,
 		    NAME_COLUMN, name_v,
 		    EXEC_COLUMN, exec_v,
 		    FCODE_COLUMN, field_code_flags,
 		    ICON_COLUMN, icon_v,
+		    TERM_COLUMN, use_term_v,
 		    -1);
 
 cont:
@@ -438,60 +453,87 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 {
 	int		 field_code_flags;
 	const char	*exec_v;
+	gboolean	 use_term;
 	GtkTreeModel	*model;
 	GtkTreeIter	 iter;
 	GValue		 value = G_VALUE_INIT;
 
 	if ((model = gtk_tree_view_get_model(tree_view)) == NULL) {
 		warnx("gtk_tree_view_get_model is NULL");
-		goto done;
+		return;
 	}
 
 	if (!gtk_tree_model_get_iter(model, &iter, path)) {
 		warnx("gtk_tree_model_get_iter: path does not exist");
-		goto done;
+		return;
 	}
 
 	gtk_tree_model_get_value(model, &iter, EXEC_COLUMN, &value);
 	if (!G_VALUE_HOLDS_STRING(&value)) {
 		warnx("gtk_tree_model_get_value: exec is not a string");
-		goto done;
+		return;
 	}
-
 	exec_v = g_value_dup_string(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, &iter, FCODE_COLUMN, &value);
 	if (!G_VALUE_HOLDS_INT(&value)) {
 		warnx("gtk_tree_model_get_value: flags are not an integer");
-		goto done;
+		return;
 	}
 	field_code_flags = g_value_get_int(&value);
-
-	if (run_cmd(exec_v, field_code_flags))
-		gtk_main_quit();
-
-done:
 	g_value_unset(&value);
+
+	gtk_tree_model_get_value(model, &iter, TERM_COLUMN, &value);
+	if (!G_VALUE_HOLDS_BOOLEAN(&value)) {
+		warnx("gtk_tree_model_get_value: term is not a Boolean");
+		return;
+	}
+	use_term = g_value_get_boolean(&value);
+	g_value_unset(&value);
+
+	if (run_cmd(exec_v, field_code_flags, use_term))
+		gtk_main_quit();
 }
 
 /*
  * Handle commands with flags and options, and ultimately run the command.
  */
 int
-run_cmd(const char *cmd, int flags)
+run_cmd(const char *cmd, int flags, gboolean use_term)
+{
+	char		*new_cmd = NULL;
+
+	new_cmd = strdup(cmd);
+
+	if (flags)
+		if (!fill_in_flags(&new_cmd, flags))
+			goto done;
+
+	if (use_term)
+		if (!add_terminal(&new_cmd))
+			goto done;
+
+	exec_cmd(new_cmd);
+	free(new_cmd);
+	return 1;
+
+done:
+	free(new_cmd);
+	return 0;
+}
+
+/*
+ * Get text and use that to fill in the placeholder.
+ */
+int
+fill_in_flags(char **cmd, int flags)
 {
 	int		 ret = 0;
-	char		*new_cmd = NULL;
 	const char	*text = NULL;
 	GtkWidget	*dialog, *box, *entry, *label = NULL;
 	GtkEntryBuffer	*buf;
 	GValue		 g_9 = G_VALUE_INIT;
-
-	if (!flags) {
-		exec_cmd(cmd);
-		return 1;
-	}
 
 	g_value_init(&g_9, G_TYPE_INT);
 	g_value_set_int(&g_9, 3);
@@ -511,21 +553,17 @@ run_cmd(const char *cmd, int flags)
 	gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
 	gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
 
-	if (flags & SINGLE_FILE_PLACEHOLDER) {
+	if (flags & SINGLE_FILE_PLACEHOLDER)
 		label = gtk_label_new("File name");
-	}
 
-	if (flags & SINGLE_URL_PLACEHOLDER) {
+	if (flags & SINGLE_URL_PLACEHOLDER)
 		label = gtk_label_new("URI");
-	}
 
-	if (flags & MULTI_FILE_PLACEHOLDER) {
+	if (flags & MULTI_FILE_PLACEHOLDER)
 		label = gtk_label_new("Files");
-	}
 
-	if (flags & MULTI_URL_PLACEHOLDER) {
+	if (flags & MULTI_URL_PLACEHOLDER)
 		label = gtk_label_new("URIs");
-	}
 
 	if (label) {
 		gtk_box_pack_start(GTK_BOX(box), label, /* expand */ 0,
@@ -541,14 +579,13 @@ run_cmd(const char *cmd, int flags)
 		buf = gtk_entry_get_buffer(GTK_ENTRY(entry));
 		text = gtk_entry_buffer_get_text(buf);
 
-		if ((new_cmd = fill_in_command(cmd, text, flags)) == NULL) {
+		if ((*cmd = fill_in_command(*cmd, text, flags)) == NULL) {
 			warnx("fill_in_command failed");
-			goto done;
+			break;
 		}
 
-		exec_cmd(new_cmd);
-
 		ret = 1;
+
 		break;
 	case GTK_RESPONSE_CLOSE:
 	case GTK_RESPONSE_NONE:
@@ -561,9 +598,40 @@ run_cmd(const char *cmd, int flags)
 
 	gtk_widget_destroy(dialog);
 
-done:
-	free(new_cmd);
 	return ret;
+}
+
+/*
+ * Prefix the cmd with a terminal emulator.
+ */
+int
+add_terminal(char **cmd)
+{
+	char	*emulator, *new_cmd;
+	int	 len_new_cmd;
+
+	if ((emulator = getenv("TERMINAL")) == NULL)
+		emulator = strdup("xterm");
+	if (emulator == NULL) {
+		warn("getenv or strdup");
+		return 0;
+	}
+
+	len_new_cmd = strlen(*cmd) + strlen(emulator) + 5;
+	if ((new_cmd = calloc(len_new_cmd, sizeof(char))) == NULL) {
+		warn("calloc");
+		return 0;
+	}
+
+	if (snprintf(new_cmd, len_new_cmd, "%s -e %s", emulator, *cmd) >= len_new_cmd) {
+		warn("snprintf");
+		free(new_cmd);
+		return 0;
+	}
+
+	*cmd = strdup(new_cmd);
+	free(new_cmd);
+	return 1;
 }
 
 /*

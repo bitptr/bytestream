@@ -1,15 +1,15 @@
+- Comment (tooltip, perhaps)
+- handle different Types
 - %i
 - %c
 - %k
-- Terminal
 - Path
-- handle different Types
 - OnlyShowIn
 - NotShowIn
 - DBusActivatable
 - Keywords?
 - Actions
-- Comment (tooltip, perhaps)
+- TryExec
 
 - file completion (%f/%F, %u/%U file:///)
 - DnD for passing arguments
