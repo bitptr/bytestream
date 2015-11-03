@@ -5,7 +5,7 @@ Principles
 ----------
 
 - We follow the OpenBSD KNF.
-- Always able to build and run on the latest OpenBSD.
+- Always able to build and run on the latest OpenBSD and Debian.
 - Use the OS and C library first.
 
 Details
@@ -23,9 +23,9 @@ syntax. Use these vim settings for the indentation format:
 
 [openbsd-knf]: http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man9/style.9
 
-*Build and run on OpenBSD*. This OS represent the systems that we use,
-therefore they are the ones we are best able to support.  Our target audience
-uses them, too.
+*Build and run on OpenBSD and Debian*. These OSes represent the systems that we
+use, therefore they are the ones we are best able to support. Our target
+audience uses them, too.
 
 *Use libc first*. It is far too easy to reach for convenience functions in
 extra libraries, but we should first use and practice what we have in our OS.
