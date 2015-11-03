@@ -310,7 +310,7 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error = NULL;
-	gboolean	 nodisplay_v;
+	gboolean	 nodisplay_v, hidden_v;
 
 	while ((dp = readdir(dirp)) != NULL) {
 		if (dp->d_namlen <= 8)
@@ -345,6 +345,12 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 		}
 
 		if (!g_hash_table_add(entry_files, strdup(name_v)))
+			goto cont;
+
+		hidden_v = g_key_file_get_boolean(key_file,
+		    G_KEY_FILE_DESKTOP_GROUP,
+		    G_KEY_FILE_DESKTOP_KEY_HIDDEN, NULL);
+		if (hidden_v != FALSE)
 			goto cont;
 
 		exec_v = g_key_file_get_locale_string(key_file,
