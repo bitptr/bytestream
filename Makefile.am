@@ -11,4 +11,5 @@ dist_man_MANS = man/bytestream.1
 dist_src_bytestream_SOURCES = \
 			      src/main.c \
 			      src/entrycellrenderer.c \
-			      src/entrycellrenderer.h
+			      src/entrycellrenderer.h \
+						src/compat.h src/compat.c
