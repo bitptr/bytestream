@@ -24,6 +24,7 @@
 #include <err.h>
 #include <getopt.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -52,14 +53,14 @@ enum field_code {
 
 __dead void		 usage();
 static void		 run_app(char *);
-static int		 run_cmd(const char *, int, gboolean);
+static uint8_t		 run_cmd(const char *, uint8_t, gboolean);
 static void		 exec_cmd(const char *);
 static GtkListStore	*collect_apps();
-static int		 field_codes(char *);
-static int		 fill_in_flags(char **, int);
-static int		 add_terminal(char **);
-static char		*fill_in_command(const char *, const char *, int);
-static const char	*placeholder_from_flags(int);
+static uint8_t	 	 field_codes(char *);
+static uint8_t		 fill_in_flags(char **, uint8_t);
+static uint8_t		 add_terminal(char **);
+static char		*fill_in_command(const char *, const char *, uint8_t);
+static const char	*placeholder_from_flags(uint8_t);
 static void		 handle_response(GtkDialog *, gint, gpointer);
 static GtkWidget	*apps_tree_new();
 static void		 apps_list_insert_files(GtkListStore *, GHashTable *,
@@ -111,7 +112,8 @@ main(int argc, char *argv[])
 	box = gtk_dialog_get_content_area(GTK_DIALOG(window));
 	label = gtk_label_new("Select program.");
 	scrollable = gtk_scrolled_window_new(NULL, NULL);
-	apps_tree = apps_tree_new();
+	if ((apps_tree = apps_tree_new()) == NULL)
+		return 1;
 
 	gtk_widget_set_size_request(window, 400, 300);
 	g_object_set_property(G_OBJECT(box), "margin", &g_9);
@@ -152,7 +154,9 @@ run_app(char *name)
 	GtkListStore	*apps;
 
 	apps = collect_apps();
-	gtk_tree_model_foreach(GTK_TREE_MODEL(apps), run_desktop_entry, name);
+	if (apps != NULL)
+		gtk_tree_model_foreach(
+		    GTK_TREE_MODEL(apps), run_desktop_entry, name);
 }
 
 /*
@@ -163,7 +167,7 @@ gboolean
 run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
     gpointer data)
 {
-	int		 flags = 0;
+	uint8_t		 flags = 0;
 	char		*name, *name_v, *exec_v;
 	gboolean	 use_term;
 	GValue	 	 value = G_VALUE_INIT;
@@ -191,11 +195,11 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, iter, FCODE_COLUMN, &value);
-	if (!G_VALUE_HOLDS_INT(&value)) {
+	if (!G_VALUE_HOLDS_UINT(&value)) {
 		warnx("gtk_tree_model_get_value: flags are not an integer");
 		return TRUE;
 	}
-	flags = g_value_get_int(&value);
+	flags = g_value_get_uint(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, iter, TERM_COLUMN, &value);
@@ -253,7 +257,8 @@ apps_tree_new()
 	g_value_init(&g_3, G_TYPE_INT);
 	g_value_set_int(&g_3, 3);
 
-	apps = collect_apps();
+	if ((apps = collect_apps()) == NULL)
+	    return NULL;
 	apps_tree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(apps));
 
 	cellr = bs_cell_renderer_entry_new();
@@ -287,7 +292,10 @@ collect_apps()
 	GHashTable		*entry_files;
 
 	apps = gtk_list_store_new(NUM_COLUMNS,
-	    G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_BOOLEAN);
+	    G_TYPE_STRING, G_TYPE_STRING, G_TYPE_UINT, G_TYPE_STRING, G_TYPE_BOOLEAN);
+	if (apps == NULL)
+		return NULL;
+
 	entry_files = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
 
 	collect_apps_in_dir(apps, entry_files, g_get_user_data_dir());
@@ -310,12 +318,14 @@ collect_apps_in_dir(GtkListStore *apps, GHashTable *entry_files,
 {
 	DIR	*dirp;
 	char	*dir;
+	int	 ret;
 	size_t	 len;
 
 	len = strlen(data_dir) + 14;
 	if ((dir = calloc(len, sizeof(char))) == NULL)
 		err(1, "calloc");
-	if (snprintf(dir, len, "%s/%s", data_dir, "applications") >= (int)len)
+	ret = snprintf(dir, len, "%s/%s", data_dir, "applications");
+	if (ret < 0 || (size_t)ret >= len)
 		err(1, "snprintf");
 
 	if ((dirp = opendir(dir)) == NULL)
@@ -337,10 +347,11 @@ void
 apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
     DIR *dirp, size_t len)
 {
-	size_t		 len_fn;
 	char		*fn = NULL, *name_v = NULL, *exec_v = NULL;
 	char		*icon_v = NULL;
-	int		 field_code_flags, len_name;
+	int		 ret;
+	size_t		 len_name, len_fn;
+	uint8_t		 field_code_flags;
 	struct dirent	*dp;
 	GKeyFile	*key_file = NULL;
 	GError		*error = NULL;
@@ -356,7 +367,8 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 		len_fn = len_name + len + 1;
 		if ((fn = calloc(len_fn, sizeof(char))) == NULL)
 			err(1, "calloc");
-		if (snprintf(fn, len_fn, "%s/%s", dir, dp->d_name) >= (int)len_fn)
+		ret = snprintf(fn, len_fn, "%s/%s", dir, dp->d_name);
+		if (ret < 0 || (size_t)ret >= len_fn)
 			err(1, "snprintf");
 
 		key_file = g_key_file_new();
@@ -433,10 +445,10 @@ cont:
 /*
  * Identify which field code placeholders are used in the exec statement.
  */
-int
+uint8_t
 field_codes(char *cmd)
 {
-	int	flags = 0, found_percent = 0;;
+	uint8_t	flags = 0, found_percent = 0;;
 
 	for (; *cmd; cmd++) {
 		switch (*cmd) {
@@ -476,7 +488,7 @@ void
 app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
     *column, gpointer user_data)
 {
-	int		 field_code_flags;
+	uint8_t		 field_code_flags;
 	const char	*exec_v;
 	gboolean	 use_term;
 	GtkTreeModel	*model;
@@ -502,11 +514,11 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, &iter, FCODE_COLUMN, &value);
-	if (!G_VALUE_HOLDS_INT(&value)) {
+	if (!G_VALUE_HOLDS_UINT(&value)) {
 		warnx("gtk_tree_model_get_value: flags are not an integer");
 		return;
 	}
-	field_code_flags = g_value_get_int(&value);
+	field_code_flags = g_value_get_uint(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, &iter, TERM_COLUMN, &value);
@@ -524,8 +536,8 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 /*
  * Handle commands with flags and options, and ultimately run the command.
  */
-int
-run_cmd(const char *cmd, int flags, gboolean use_term)
+uint8_t
+run_cmd(const char *cmd, uint8_t flags, gboolean use_term)
 {
 	char		*new_cmd = NULL;
 
@@ -551,10 +563,10 @@ done:
 /*
  * Get text and use that to fill in the placeholder.
  */
-int
-fill_in_flags(char **cmd, int flags)
+uint8_t
+fill_in_flags(char **cmd, uint8_t flags)
 {
-	int		 ret = 0;
+	uint8_t		 ret = 0;
 	const char	*text = NULL;
 	GtkWidget	*dialog, *box, *entry, *label = NULL;
 	GtkEntryBuffer	*buf;
@@ -629,11 +641,12 @@ fill_in_flags(char **cmd, int flags)
 /*
  * Prefix the cmd with a terminal emulator.
  */
-int
+uint8_t
 add_terminal(char **cmd)
 {
 	char	*emulator, *new_cmd;
-	int	 len_new_cmd;
+	int	 ret;
+	size_t	 len_new_cmd;
 
 	if ((emulator = getenv("TERMINAL")) == NULL)
 		emulator = strdup("xterm");
@@ -648,7 +661,8 @@ add_terminal(char **cmd)
 		return 0;
 	}
 
-	if (snprintf(new_cmd, len_new_cmd, "%s -e %s", emulator, *cmd) >= len_new_cmd) {
+	ret = snprintf(new_cmd, len_new_cmd, "%s -e %s", emulator, *cmd);
+	if (ret < 0 || (size_t)ret >= len_new_cmd) {
 		warn("snprintf");
 		free(new_cmd);
 		return 0;
@@ -708,11 +722,11 @@ exec_cmd(const char *cmd)
  * Replace the first placeholder with the text entered by the user.
  */
 char *
-fill_in_command(const char *cmd, const char *interp, int flags)
+fill_in_command(const char *cmd, const char *interp, uint8_t flags)
 {
 	char		*new_cmd = NULL, *p;
 	const char	*placeholder;
-	int		 len_cmd, len_interp, len_ph, len_p;
+	size_t		 len_cmd, len_interp, len_ph, len_p;
 
 	placeholder = placeholder_from_flags(flags);
 	if (!*placeholder)
@@ -747,7 +761,7 @@ err:
  * Determine the placeholder from the flags.
  */
 const char *
-placeholder_from_flags(int flags)
+placeholder_from_flags(uint8_t flags)
 {
 	if (flags & SINGLE_FILE_PLACEHOLDER)
 		return "%f";

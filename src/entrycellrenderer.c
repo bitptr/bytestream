@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -173,7 +174,7 @@ bs_cell_renderer_entry_get_size(GtkCellRenderer *cell,
     GtkWidget *widget, const GdkRectangle *cell_area, gint *x_offset,
     gint *y_offset, gint *width, gint *height)
 {
-	int	xpad, ypad;
+	int32_t	xpad, ypad;
 
 	g_object_get(cell, "xpad", &xpad, "ypad", &ypad, NULL);
 
@@ -188,8 +189,8 @@ bs_cell_renderer_entry_render(GtkCellRenderer *cellr, cairo_t *cr,
     GtkWidget *widget, const GdkRectangle *background_area,
     const GdkRectangle *cell_area, GtkCellRendererState flags)
 {
-	int		 		 name_width, name_height;
-	int				 xpad, ypad, icon_offset = CELL_HEIGHT;
+	int32_t		 		 name_width, name_height;
+	int32_t				 xpad, ypad, icon_offset = CELL_HEIGHT;
 	BsCellRendererEntry		*cell;
 	BsCellRendererEntryPrivate	*priv;
 	GtkStyleContext			*style_ctx;
@@ -222,7 +223,8 @@ bs_cell_renderer_entry_render(GtkCellRenderer *cellr, cairo_t *cr,
 	pango_layout_set_attributes(name_layout, list);
 
 	if (priv->icon)
-		icon = gdk_pixbuf_new_from_file_at_size(priv->icon, CELL_HEIGHT, -1, &error);
+		icon = gdk_pixbuf_new_from_file_at_size(priv->icon,
+		    CELL_HEIGHT, -1, &error);
 	if (icon)
 		gtk_render_icon(style_ctx, cr, icon, cell_area->x + xpad,
 		    cell_area->y + ypad);
