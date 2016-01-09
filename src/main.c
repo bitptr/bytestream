@@ -323,10 +323,10 @@ collect_apps_in_dir(GtkListStore *apps, GHashTable *entry_files,
 
 	len = strlen(data_dir) + 14;
 	if ((dir = calloc(len, sizeof(char))) == NULL)
-		err(1, "calloc");
+		err(1, NULL);
 	ret = snprintf(dir, len, "%s/%s", data_dir, "applications");
 	if (ret < 0 || (size_t)ret >= len)
-		err(1, "snprintf");
+		err(1, NULL);
 
 	if ((dirp = opendir(dir)) == NULL)
 		goto done;
@@ -334,7 +334,7 @@ collect_apps_in_dir(GtkListStore *apps, GHashTable *entry_files,
 	apps_list_insert_files(apps, entry_files, dir, dirp, len);
 
 	if (dirp && closedir(dirp) < 0)
-		err(1, "closedir");
+		err(1, NULL);
 
 done:
 	free(dir);
@@ -366,10 +366,10 @@ apps_list_insert_files(GtkListStore *apps, GHashTable *entry_files, char *dir,
 
 		len_fn = len_name + len + 1;
 		if ((fn = calloc(len_fn, sizeof(char))) == NULL)
-			err(1, "calloc");
+			err(1, NULL);
 		ret = snprintf(fn, len_fn, "%s/%s", dir, dp->d_name);
 		if (ret < 0 || (size_t)ret >= len_fn)
-			err(1, "snprintf");
+			err(1, NULL);
 
 		key_file = g_key_file_new();
 		if (!g_key_file_load_from_file(key_file, fn, G_KEY_FILE_NONE, &error))
