@@ -51,9 +51,19 @@ enum field_code {
 	MULTI_URL_PLACEHOLDER = 1 << 4,
 };
 
+struct state {
+	char		*cmd;		/* The command to run */
+	char		*name;		/* The program name to run, if any */
+	uint8_t		 shift_pressed;	/* Whether shift is being held */
+	uint8_t		 flags;		/* Command flags as set by the desktop entry */
+	gboolean	 use_term;	/* Whether to run the command in a terminal */
+};
+
 __dead void		 usage();
-static void		 run_app(char *);
-static uint8_t		 run_cmd(const char *, uint8_t, gboolean);
+static struct state	*init_state(void);
+static void		 free_state(struct state *);
+static void		 run_app(struct state *);
+static uint8_t		 run_cmd(struct state *);
 static void		 exec_cmd(const char *);
 static GtkListStore	*collect_apps();
 static uint8_t	 	 field_codes(char *);
@@ -67,6 +77,7 @@ static void		 apps_list_insert_files(GtkListStore *, GHashTable *,
     char *, DIR *, size_t);
 static void		 app_selected(GtkTreeView *, GtkTreePath *,
     GtkTreeViewColumn *, gpointer);
+static gboolean		 key_pressed(GtkWidget *, GdkEvent *, gpointer);
 static gboolean		 run_desktop_entry(GtkTreeModel *, GtkTreePath *,
     GtkTreeIter *, gpointer);
 static void		 collect_apps_in_dir(GtkListStore *, GHashTable *,
@@ -83,6 +94,10 @@ main(int argc, char *argv[])
 	int		 ch;
 	GtkWidget	*box, *label, *apps_tree, *scrollable;
 	GValue		 g_9 = G_VALUE_INIT;
+	GtkBindingSet	*binding_set;
+	struct state	*st;
+
+	st = init_state();
 
 	while ((ch = getopt(argc, argv, "")) != -1)
 		usage();
@@ -95,7 +110,8 @@ main(int argc, char *argv[])
 		usage();
 
 	if (argc == 1) {
-		run_app(argv[0]);
+		st->name = strdup(argv[0]);
+		run_app(st);
 		return 0;
 	}
 
@@ -126,12 +142,25 @@ main(int argc, char *argv[])
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 	g_signal_connect(window, "response", G_CALLBACK(handle_response), apps_tree);
-	g_signal_connect(apps_tree, "row-activated", G_CALLBACK(app_selected), NULL);
+	g_signal_connect(window, "key-press-event", G_CALLBACK(key_pressed), st);
+	g_signal_connect(apps_tree, "row-activated", G_CALLBACK(app_selected), st);
+
+	binding_set = gtk_binding_set_by_class(G_OBJECT_GET_CLASS(apps_tree));
+	gtk_binding_entry_add_signal(
+	    binding_set, GDK_KEY_Return, GDK_SHIFT_MASK, "select-cursor-row",
+	    1, G_TYPE_BOOLEAN, TRUE);
+	gtk_binding_entry_add_signal(
+	    binding_set, GDK_KEY_ISO_Enter, GDK_SHIFT_MASK, "select-cursor-row",
+	    1, G_TYPE_BOOLEAN, TRUE);
+	gtk_binding_entry_add_signal(
+	    binding_set, GDK_KEY_KP_Enter, GDK_SHIFT_MASK, "select-cursor-row",
+	    1, G_TYPE_BOOLEAN, TRUE);
 
 	gtk_widget_show_all(window);
 
 	gtk_main();
 
+	free_state(st);
 	return 0;
 }
 
@@ -146,17 +175,51 @@ usage()
 }
 
 /*
+ * Initialize an empty state structure. This structure is used to communicate
+ * in callbacks.
+ */
+struct state *
+init_state(void)
+{
+	struct state	*st;
+
+	if ((st = malloc(sizeof(struct state))) == NULL)
+		err(1, NULL);
+
+	st->cmd = NULL;
+	st->name = NULL;
+	st->shift_pressed = 0;
+	st->flags = 0;
+	st->use_term = 0;
+
+	return st;
+}
+
+/*
+ * Free a state structure.
+ */
+static void
+free_state(struct state *st)
+{
+	if (st) {
+		free(st->cmd);
+		free(st->name);
+		free(st);
+	}
+}
+
+/*
  * Run a specific application by name.
  */
 static void
-run_app(char *name)
+run_app(struct state *st)
 {
 	GtkListStore	*apps;
 
 	apps = collect_apps();
 	if (apps != NULL)
 		gtk_tree_model_foreach(
-		    GTK_TREE_MODEL(apps), run_desktop_entry, name);
+		    GTK_TREE_MODEL(apps), run_desktop_entry, st);
 }
 
 /*
@@ -167,12 +230,11 @@ gboolean
 run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
     gpointer data)
 {
-	uint8_t		 flags = 0;
-	char		*name, *name_v, *exec_v;
-	gboolean	 use_term;
+	char		*name_v;
+	struct state	*st;
 	GValue	 	 value = G_VALUE_INIT;
 
-	name = (char *)data;
+	st = (struct state *)data;
 
 	gtk_tree_model_get_value(model, iter, NAME_COLUMN, &value);
 	if (!G_VALUE_HOLDS_STRING(&value)) {
@@ -182,8 +244,8 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 	name_v = g_value_dup_string(&value);
 	g_value_unset(&value);
 
-	if (strlen(name_v) != strlen(name) ||
-	    strncmp(name_v, name, strlen(name)) != 0)
+	if (strlen(name_v) != strlen(st->name) ||
+	    strncmp(name_v, st->name, strlen(st->name)) != 0)
 		return FALSE;
 
 	gtk_tree_model_get_value(model, iter, EXEC_COLUMN, &value);
@@ -191,7 +253,7 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 		warnx("gtk_tree_model_get_value: exec is not a string");
 		return TRUE;
 	}
-	exec_v = g_value_dup_string(&value);
+	st->cmd = g_value_dup_string(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, iter, FCODE_COLUMN, &value);
@@ -199,7 +261,7 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 		warnx("gtk_tree_model_get_value: flags are not an integer");
 		return TRUE;
 	}
-	flags = g_value_get_uint(&value);
+	st->flags = g_value_get_uint(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, iter, TERM_COLUMN, &value);
@@ -207,10 +269,10 @@ run_desktop_entry(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
 		warnx("gtk_tree_model_get_value: term is not a Boolean");
 		return TRUE;
 	}
-	use_term = g_value_get_boolean(&value);
+	st->use_term = g_value_get_boolean(&value);
 	g_value_unset(&value);
 
-	if (run_cmd(exec_v, flags, use_term))
+	if (run_cmd(st))
 		return TRUE;
 
 	return TRUE;
@@ -488,12 +550,12 @@ void
 app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
     *column, gpointer user_data)
 {
-	uint8_t		 field_code_flags;
-	const char	*exec_v;
-	gboolean	 use_term;
 	GtkTreeModel	*model;
 	GtkTreeIter	 iter;
 	GValue		 value = G_VALUE_INIT;
+	struct state	*st;
+
+	st = (struct state *)user_data;
 
 	if ((model = gtk_tree_view_get_model(tree_view)) == NULL) {
 		warnx("gtk_tree_view_get_model is NULL");
@@ -510,7 +572,7 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 		warnx("gtk_tree_model_get_value: exec is not a string");
 		return;
 	}
-	exec_v = g_value_dup_string(&value);
+	st->cmd = g_value_dup_string(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, &iter, FCODE_COLUMN, &value);
@@ -518,7 +580,7 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 		warnx("gtk_tree_model_get_value: flags are not an integer");
 		return;
 	}
-	field_code_flags = g_value_get_uint(&value);
+	st->flags = g_value_get_uint(&value);
 	g_value_unset(&value);
 
 	gtk_tree_model_get_value(model, &iter, TERM_COLUMN, &value);
@@ -526,28 +588,62 @@ app_selected(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn
 		warnx("gtk_tree_model_get_value: term is not a Boolean");
 		return;
 	}
-	use_term = g_value_get_boolean(&value);
+	st->use_term = g_value_get_boolean(&value);
 	g_value_unset(&value);
 
-	if (run_cmd(exec_v, field_code_flags, use_term))
+	if (run_cmd(st))
 		gtk_main_quit();
+}
+
+/*
+ * A key has been pressed or released. If that key is shift, update the state.
+ */
+gboolean
+key_pressed(GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+	struct state	*st;
+	st = (struct state *)user_data;
+
+	switch (event->type) {
+	case GDK_KEY_PRESS:
+		if (event->key.keyval == GDK_KEY_Shift_L ||
+		    event->key.keyval == GDK_KEY_Shift_R)
+			st->shift_pressed = 1;
+		break;
+	case GDK_KEY_RELEASE:
+		if (event->key.keyval == GDK_KEY_Shift_L ||
+		    event->key.keyval == GDK_KEY_Shift_R)
+			st->shift_pressed = 0;
+		break;
+	default:
+		break;
+	}
+
+	return FALSE;
 }
 
 /*
  * Handle commands with flags and options, and ultimately run the command.
  */
 uint8_t
-run_cmd(const char *cmd, uint8_t flags, gboolean use_term)
+run_cmd(struct state *st)
 {
 	char		*new_cmd = NULL;
 
-	new_cmd = strdup(cmd);
+	new_cmd = strdup(st->cmd);
 
-	if (flags)
-		if (!fill_in_flags(&new_cmd, flags))
+	if (st->flags) {
+		if (st->shift_pressed) {
+			new_cmd = fill_in_command(st->cmd, "", st->flags);
+			if (new_cmd == NULL) {
+				warnx("fill_in_command failed");
+				goto done;
+			}
+		} else if (!fill_in_flags(&new_cmd, st->flags))
 			goto done;
+	}
 
-	if (use_term)
+	if (st->use_term)
 		if (!add_terminal(&new_cmd))
 			goto done;
 
