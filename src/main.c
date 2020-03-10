@@ -778,10 +778,13 @@ exec_cmd(const char *cmd)
 	int	 status;
 	pid_t	 pid;
 	gchar	**argv;
-	GError	*errors;
+	GError	*errors = NULL;
 
 	if (!g_shell_parse_argv(cmd, NULL, &argv, &errors)) {
-		warnx("g_shell_parse_argv: %s", errors->message);
+		if (errors)
+			warnx("g_shell_parse_argv: %s", errors->message);
+		else
+			warnx("g_shell_parse_argv failed on: %s", cmd);
 		return;
 	}
 
