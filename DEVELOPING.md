@@ -38,7 +38,7 @@ See the dependencies in the `README.md`.
 
 To build from a fresh checkout:
 
-    ./autogen.sh
+    autoreconf --install
     ./configure
     make
 
